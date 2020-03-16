@@ -1,0 +1,228 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <string.h>
+int hits=0;
+int miss=0;
+int reads=0;
+int writes=0;
+int count=0;
+typedef struct cache{
+  unsigned int tag;
+  unsigned long int valid;
+  unsigned int duration;
+}cache;
+void print_cache(int reads, int writes,int hits, int miss) {
+  printf("no-prefetch\n");
+  printf("Memory reads:%d\n",reads);
+  printf("Memory writes:%d\n",writes);
+  printf("Cache hits:%d\n", hits);
+  printf("Cache misses:%d\n", miss);
+}
+void print_cache_prefetch(int reads, int writes,int hits, int miss) {
+  printf("with-prefetch\n");
+  printf("Memory reads:%d\n",reads);
+  printf("Memory writes:%d\n",writes);
+  printf("Cache hits:%d\n", hits);
+  printf("Cache misses:%d\n",miss);
+}
+void dump_cache(cache**cachewr,size_t sets, size_t associativity){
+  for (int i = 0; i < sets; i++) {
+    for (int j = 0; j < associativity; j++) {
+      cachewr[i][j].tag=0;
+      cachewr[i][j].valid=0;
+      cachewr[i][j].duration=0;
+    }
+  }
+}
+void LRUprefetch(cache**cachewr,size_t tag, size_t associativity, size_t set_index) {
+  for(int i=0;i<associativity;i++){
+    if(cachewr[set_index][i].tag==0 && cachewr[set_index][i].valid==0){
+      miss++;
+      reads++;
+      count++;
+      cachewr[set_index][i].tag=tag;
+      cachewr[set_index][i].valid=1;
+      cachewr[set_index][i].duration=count;
+    }
+    if(cachewr[set_index][i].tag==tag){
+      return;
+    }
+    if(i==(associativity-1)){
+      miss++;
+      reads++;
+      int initial=0;
+      for (int j = 0; j < associativity; j++) {
+        if(cachewr[set_index][j].duration<=cachewr[set_index][initial].duration){
+          initial=j;
+        }
+      }
+      cachewr[set_index][initial].tag=tag;
+      cachewr[set_index][initial].valid=1;
+      count++;
+      cachewr[set_index][initial].duration=count;
+    }
+  }
+}
+void LRU_write_read(cache**cachewr, unsigned long int  tag,unsigned long int associativity, unsigned long int  set_index){
+  int initial=0;
+  for(int i=0;i<associativity;i++){
+    if((cachewr[set_index][i].tag ==0) && (cachewr[set_index][i].valid==0)){
+      miss++;
+      reads++;
+      writes++;
+      count++;
+      cachewr[set_index][i].tag=tag;
+      cachewr[set_index][i].valid=1;
+      cachewr[set_index][i].duration=count;
+    }
+    if(cachewr[set_index][i].tag==tag){
+      hits++;
+    }
+    if(i==(associativity-1)){
+      miss++;
+      reads++;
+      writes++;
+      for (int j = 0; j < associativity; j++) {
+        if(cachewr[set_index][j].duration<=cachewr[set_index][initial].duration){
+          initial=j;
+        }
+      }
+      cachewr[set_index][initial].tag=tag;
+      cachewr[set_index][initial].valid=1;
+      count++;
+      cachewr[set_index][initial].duration=count;
+    }
+  }
+}
+void FIFO_write_read(cache**cachewr, unsigned long int  tag,unsigned long int associativity, unsigned long int  set_index){
+  for(int i=0;i<associativity;i++){
+    if((cachewr[set_index][i].tag ==0) && (cachewr[set_index][i].valid==0)){
+      miss++;
+      writes++;
+      reads++;
+      count++;
+      cachewr[set_index][i].tag=tag;
+      cachewr[set_index][i].valid=1;
+      cachewr[set_index][i].duration=count;
+    }
+    if(cachewr[set_index][i].tag==tag){
+      hits++;
+    }
+    if(i==(associativity-1)){
+      miss++;
+      reads++;
+      writes++;
+      int final = associativity --;
+      for(int j=0; j<associativity;j++){
+	int inctemp=j+1;
+	cachewr[set_index][j]=cachewr[set_index][inctemp];
+      }
+      cachewr[set_index][final].tag=tag;
+      cachewr[set_index][final].valid=1;
+      count++;
+      cachewr[set_index][final].duration=count;
+    }
+  }
+}
+void FIFOprefetch(cache**cachewr, unsigned long int  tag,unsigned long int associativity, unsigned long int  set_index){
+  for(int i=0;i<associativity;i++){
+    if((cachewr[set_index][i].tag ==0) && (cachewr[set_index][i].valid==0)){
+      miss++;
+      reads++;
+      count++;
+      writes++;
+      cachewr[set_index][i].tag=tag;
+      cachewr[set_index][i].valid=1;
+      cachewr[set_index][i].duration=count;
+    }
+    if(cachewr[set_index][i].tag==tag){
+      return;
+    }
+    if(i==(associativity-1)){
+      miss++;
+      reads++;
+      writes++;
+      int final = associativity--;
+      for(int j=0; j<associativity;j++){
+	int inctemp=j+1;
+	cachewr[set_index][j]=cachewr[set_index][inctemp];
+      }
+    cachewr[set_index][final].tag=tag;
+    cachewr[set_index][final].valid=1;
+    count++;
+    cachewr[set_index][final].duration=count;
+  }
+  }
+}
+int main(int argc, char** argv) {
+  size_t associativity;
+  size_t sets;
+  size_t block_offset=atoi(argv[2]);
+  size_t address;
+  char cache_type;
+  FILE *fp= fopen(argv[6], "r");
+  if(fp==NULL){
+    return 0;
+  }
+  if(strcmp(argv[4], "direct")==0){
+    associativity = 1;
+    sets=atoi(argv[1])/atoi(argv[2]);
+  }
+  if ((strcmp(argv[4], "assoc")==0)) {
+    associativity=1;
+    sets=atoi(argv[1])/atoi(argv[2]);
+  }
+  if(argv[4][5] == ':'){
+    associativity = atoi(&argv[4][6]);
+    if((associativity & (associativity - 1))== 0){
+      sets=atoi(argv[1])/(atoi(argv[2])*associativity);
+    }
+  }
+  cache** cachewr=malloc(sets*sizeof(cache*));
+  for (int i = 0; i < sets; i++) {
+    *(cachewr+i)= malloc(associativity*sizeof(cache));
+  }
+  for (int i = 0; i < sets; i++) {
+    for (int j = 0; j < associativity; j++) {
+      cachewr[i][j].tag=0;
+      cachewr[i][j].valid=0;
+      cachewr[i][j].duration=0;
+    }
+  }
+  size_t block_offset_bits=log2(block_offset);
+  size_t set_index_bits=log2(sets);
+  while(fscanf(fp,"%c %lx", &cache_type, &address)==2){
+    int mask = (1 << set_index_bits) - 1;
+    unsigned int index = (address >> block_offset_bits) & mask;
+    unsigned long int tag = address >> (block_offset_bits + set_index_bits);
+    unsigned long prefetch_address=address+atoi(argv[2]);
+    unsigned int preindex = (prefetch_address >> block_offset_bits) & mask;
+    unsigned long int pretag = prefetch_address >> (block_offset_bits + set_index_bits);
+    if(strcmp(argv[3], "lru")==0){
+      if(cache_type=='R'){
+	LRU_write_read(cachewr,tag,associativity,index);
+	LRUprefetch(cachewr,pretag,associativity,preindex);
+      }
+      if (cache_type=='W') {
+	LRU_write_read(cachewr, tag,associativity,index);
+	LRUprefetch(cachewr,pretag,associativity,preindex);
+      }
+    }
+    if (strcmp(argv[3], "fifo")==0) {
+      if(cache_type=='R'){
+	FIFO_write_read(cachewr,tag,associativity,index);
+	FIFOprefetch(cachewr,pretag,associativity,preindex);
+      }
+      if (cache_type=='W') {
+	FIFO_write_read(cachewr, tag,associativity,index);
+	FIFOprefetch(cachewr,pretag,associativity,preindex);
+      }
+    }
+  }
+  print_cache(reads,writes,hits,miss);
+  dump_cache(cachewr,sets,associativity);
+  print_cache_prefetch(reads,writes,hits,miss);
+  dump_cache(cachewr,sets,associativity);
+  return 0;
+}
